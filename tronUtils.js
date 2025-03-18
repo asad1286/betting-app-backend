@@ -21,7 +21,7 @@ async function getUsdtBalance(address) {
 
         const contract = await tronWeb.contract().at(USDT_CONTRACT_ADDRESS);
         const balance = await contract.methods.balanceOf(address).call();
-
+        console.log("user blance is :",tronWeb.toBigNumber(balance).dividedBy(1e6).toNumber())
         return tronWeb.toBigNumber(balance).dividedBy(1e6).toNumber(); // Convert from Sun to USDT
     } catch (error) {
         console.error(`Error getting USDT balance:`, error.message || error);
@@ -63,5 +63,25 @@ async function sendUsdt(user, fromAddress, toAddress, amount) {
         return null;
     }
 }
+
+// async function detectDeposits(amount) {
+//     try {
+//         const currentBalance = await getUsdtBalance(ADMIN_ADDRESS);
+
+//         if (currentBalance > previousBalance) {
+//             const depositAmount = currentBalance - previousBalance;
+//             console.log(`New deposit detected: ${depositAmount} USDT received at ${ADMIN_ADDRESS}`);
+
+//             // You can handle the deposit, update the database, notify the admin, etc.
+//         } else if (currentBalance < previousBalance) {
+//             console.log(`USDT balance decreased. Possible withdrawal detected.`);
+//         }
+
+//         // Update previous balance
+//         previousBalance = currentBalance;
+//     } catch (error) {
+//         console.error("Error detecting deposits:", error.message || error);
+//     }
+// }
 
 module.exports = { getUsdtBalance, sendUsdt };

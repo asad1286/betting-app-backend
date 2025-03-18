@@ -2,8 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
-const { Op } = require('sequelize');
-const { User, Plan, UserPlan } = require('../models/index'); // Import User model
+const { Sequelize,Op } = require('sequelize');
+const { User, Plan, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
 const router = express.Router();
 const { getUsdtBalance, sendUsdt } = require('../tronUtils')
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; // Replace with actual admin testnet address
@@ -217,17 +217,17 @@ module.exports = {
     async assignPlanToUser(req, res) {
         try {
             const { planId } = req.body;
-    
+
             const user = await User.findByPk(req.user.id);
             const plan = await Plan.findByPk(planId);
-    
+
             if (!user) {
                 return res.status(404).json({ success: false, message: 'User not found' });
             }
             if (!plan) {
                 return res.status(404).json({ success: false, message: 'Plan not found' });
             }
-    
+
             // Check if the user already has an active plan
             const existingUserPlan = await UserPlan.findOne({
                 where: {
@@ -236,32 +236,32 @@ module.exports = {
                     expiresAt: { [Op.gt]: new Date() }, // Check if the plan is still active
                 },
             });
-    
+
             if (existingUserPlan) {
                 return res.status(400).json({
                     success: false,
                     message: 'You already have an active plan. Please wait for it to expire before purchasing a new one.',
                 });
             }
-    
+
             // Get USDT balance from user's testnet address
             const userBalance = await getUsdtBalance(user.trx20DepositAddress);
             console.log(`User Balance: ${userBalance} USDT`);
-    
+
             if (userBalance < plan.price) {
                 return res.status(400).json({ message: 'Insufficient balance. Deposit more funds on Testnet.' });
             }
-    
+
             // Send USDT from user to admin (TESTNET TRANSACTION)
-            const transactionId = await sendUsdt(user,user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
+            const transactionId = await sendUsdt(user, user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
             // console.log(transactionId)
             if (!transactionId) {
                 return res.status(500).json({ success: false, message: 'Testnet transaction failed' });
             }
-    
+
             // Set expiry date
             const expiresAt = moment().add(plan.duration, 'days').toDate();
-    
+
             // Create UserPlan association
             const userPlan = await UserPlan.create({
                 userId: req.user.id,
@@ -271,18 +271,19 @@ module.exports = {
                 paymentDate: new Date(),
                 paymentTransactionId: transactionId,
             });
-    
+
             return res.status(200).json({
                 success: true,
                 message: 'Plan assigned to user successfully (Testnet)',
                 userPlan,
             });
-    
+
         } catch (error) {
             console.error(error);
             return res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
+
     async getLoggedInUserPlans(req, res) {
         try {
             const userId = req.user.id; // Get user ID from authenticated token
@@ -297,7 +298,7 @@ module.exports = {
                     },
                 ],
             });
-    
+
             // Format the response
             const formattedPlans = userPlans.map(userPlan => ({
                 userPlanId: userPlan.id, // UserPlan ID
@@ -308,14 +309,64 @@ module.exports = {
                 dailyReward: userPlan.Plan.dailyReward, // Daily reward
                 paymentStatus: userPlan.paymentStatus, // Payment status
             }));
-            
+
             return res.json({ success: true, plans: formattedPlans });
         } catch (error) {
             console.error("Error fetching user plans:", error);
             res.status(500).json({ success: false, message: "Internal Server Error" });
         }
+    },
+
+
+
+    async withdrawAmountRequest(req, res) {
+        try {
+            const { withdrawAmount, trc20WithdrawAddress } = req.body;
+            const user = await User.findByPk(req.user.id);
+
+            // Step 1: Check if withdrawAmount is at least 10 USDT
+            if (withdrawAmount < 10) {
+                return res.status(400).json({ success: false, message: "Minimum withdrawal amount is 10.00 USDT" });
+            }
+
+            // Step 2: Check user's current USDT balance
+            const userBalance = await getUsdtBalance(user.trx20DepositAddress);
+            if (userBalance < withdrawAmount) {
+                return res.status(400).json({ success: false, message: "Insufficient balance for withdrawal" });
+            }
+
+            // Step 3: Check if the user has an active, valid plan
+            const userPlan = await UserPlan.findOne({
+                where: {
+                    userId: user.id,
+                    expiresAt: { [Sequelize.Op.gt]: new Date() }, // Check if the plan is not expired
+                    paymentStatus: 'completed',
+                },
+                include: [{ model: Plan, attributes: ['id', 'name'] }] // Include the Plan details if needed
+            });
+
+            if (!userPlan) {
+                return res.status(400).json({ success: false, message: "You do not have an active plan." });
+            }
+
+            // Step 4: Create the WithdrawalRequest
+            const withdrawalRequest = await WithdrawalRequest.create({
+                userId: user.id,
+                withdrawAmount: withdrawAmount,
+                trc20WithdrawAddress: trc20WithdrawAddress,
+            });
+
+            // Step 5: If everything is good, attempt the transaction to send USDT
+
+            return res.status(201).json({ success: true, message: "Withdrawal Request Sending to Admin wait for Approval" });
+
+
+        } catch (error) {
+            console.error("Error processing withdrawal request:", error);
+            res.status(500).json({ success: false, message: "Internal Server Error" });
+        }
     }
-    
+
 
 
 

@@ -28,7 +28,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use("/api/auth/user", AuthRoute);
-app.use("/api/admin/plans", AdminRoute);
+app.use("/api/admin", AdminRoute);
 
 app.use(ErrorMiddleware);
 

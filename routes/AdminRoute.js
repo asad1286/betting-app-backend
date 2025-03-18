@@ -5,7 +5,9 @@ const router = express.Router();
 
 // Route to add a new plan (only for admins)
 router.post('/add-plan', verifyJWTToken, isAdmin, adminController.addPlan);
-router.get('/', adminController.getPlans);
+
+router.get('/plans', adminController.getPlans);
+router.get('/withdraw-requests',verifyJWTToken,isAdmin,adminController.getAllWithdrawalRequests)
 
 // Route to assign a plan to a user (can be accessed by any authorized user)
 

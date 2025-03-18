@@ -30,6 +30,10 @@ module.exports = (sequelize) => {
                 foreignKey: 'userId',
                 onDelete: 'CASCADE',
             });
+            User.hasMany(models.WithdrawalRequest, {
+                foreignKey: 'userId',
+                onDelete: 'CASCADE',
+            });
         }
     }
 
