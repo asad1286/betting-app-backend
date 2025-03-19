@@ -6,7 +6,7 @@ const tronWeb = new TronWeb({
 
 // USDT Contract Address (Testnet)
 const USDT_CONTRACT_ADDRESS = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf";
-
+const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; 
 /**
  * Get USDT balance of an address
  */
@@ -64,24 +64,31 @@ async function sendUsdt(user, fromAddress, toAddress, amount) {
     }
 }
 
-// async function detectDeposits(amount) {
-//     try {
-//         const currentBalance = await getUsdtBalance(ADMIN_ADDRESS);
+async function sendWithDrawAmount(toAddress, amount) {
 
-//         if (currentBalance > previousBalance) {
-//             const depositAmount = currentBalance - previousBalance;
-//             console.log(`New deposit detected: ${depositAmount} USDT received at ${ADMIN_ADDRESS}`);
+    try {
+        const tronWeb = new TronWeb({
+            fullHost: 'https://nile.trongrid.io',
+            privateKey: "FF15689965555B7AD3FF193FC81B38B9E236FBFE1AAE8552AD876FF0263905AD", // Admin’s private key
+        });
+        if (!tronWeb.isAddress(toAddress)) throw new Error("Invalid recipient TRX address");
 
-//             // You can handle the deposit, update the database, notify the admin, etc.
-//         } else if (currentBalance < previousBalance) {
-//             console.log(`USDT balance decreased. Possible withdrawal detected.`);
-//         }
+        const contract = await tronWeb.contract().at(USDT_CONTRACT_ADDRESS);
+        const amountInSun = tronWeb.BigNumber(amount).multipliedBy(1e6).toFixed();
 
-//         // Update previous balance
-//         previousBalance = currentBalance;
-//     } catch (error) {
-//         console.error("Error detecting deposits:", error.message || error);
-//     }
-// }
+        console.log(`Sending ${amount} USDT to ${toAddress} on Testnet`);
 
-module.exports = { getUsdtBalance, sendUsdt };
+        // Send the USDT transaction
+        const transaction = await contract.methods.transfer(toAddress, amountInSun).send({
+            from: ADMIN_TRX_ADDRESS
+        });
+
+        console.log(`Transaction successful: ${transaction}`);
+        return transaction; // Transaction Hash
+    } catch (error) {
+        console.error(`Error sending USDT:`, error.message || error);
+        return null;
+    }
+}
+
+module.exports = { getUsdtBalance, sendUsdt,sendWithDrawAmount };

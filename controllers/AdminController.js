@@ -1,7 +1,8 @@
 const { Plan, User, UserPlan, WithdrawalRequest } = require('../models/index'); // Import the models
 const moment = require('moment'); // To format dates
  // We will use this to set the expiry date for the plan
-
+ const {sendWithDrawAmount,getUsdtBalance}=require('../tronUtils')
+ const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; 
 // Controller to add a new plan
 module.exports = {
 
@@ -86,9 +87,60 @@ module.exports = {
             });
         } catch (error) {
             console.error("Error fetching withdrawal requests:", error);
-            return res.status(500).json({ success: false, message: "Internal Server Error" });
+            return res.status(500).json({ success: false, message:error});
         }
     },
+
+    async updateWithdrawalRequestStatus(req, res) {
+        try {
+            const { requestId } = req.params;
+            const { status } = req.body;
+    
+            // Find the withdrawal request
+            const request = await WithdrawalRequest.findByPk(requestId);
+    
+            if (!request) {
+                return res.status(404).json({ success: false, message: "Withdrawal request not found" });
+            }
+    
+            // If status is "approved", send the USDT
+            if (status === "approved") {
+                const adminBalance = await getUsdtBalance(ADMIN_TRX_ADDRESS);
+    
+                if (adminBalance < request.withdrawAmount) {
+                    return res.status(400).json({ success: false, message: "Insufficient funds in admin account" });
+                }
+    
+                // Send USDT from admin to user
+                const transactionHash = await sendWithDrawAmount(request.trc20WithdrawAddress, request.withdrawAmount);
+    
+                if (!transactionHash) {
+                    return res.status(500).json({ success: false, message: "USDT transfer failed" });
+                }
+    
+                // Update request status to "sent"
+                await request.update({ status: "sent" });
+    
+                return res.status(200).json({
+                    success: true,
+                    message: "Withdrawal request approved and USDT sent",
+                    transactionHash,
+                });
+            } else {
+                // If status is anything else, just update it
+                await request.update({ status });
+    
+                return res.status(200).json({
+                    success: true,
+                    message: `Withdrawal request status updated to ${status}`,
+                });
+            }
+    
+        } catch (error) {
+            console.error("Error updating withdrawal request status:", error);
+            return res.status(500).json({ success: false, message: "Internal Server Error" });
+        }
+    }
 
     // Controller to assign a plan to a user
 

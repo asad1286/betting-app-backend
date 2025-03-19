@@ -8,6 +8,7 @@ router.post('/add-plan', verifyJWTToken, isAdmin, adminController.addPlan);
 
 router.get('/plans', adminController.getPlans);
 router.get('/withdraw-requests',verifyJWTToken,isAdmin,adminController.getAllWithdrawalRequests)
+router.put('/request-update/:requestId',verifyJWTToken,isAdmin,adminController.updateWithdrawalRequestStatus)
 
 // Route to assign a plan to a user (can be accessed by any authorized user)
 
