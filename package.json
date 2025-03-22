@@ -31,6 +31,7 @@
     "moment": "^2.30.1",
     "mysql2": "^3.13.0",
     "node-binance-api": "^0.13.4",
+    "nodemailer": "^6.10.0",
     "sequelize": "^6.37.6",
     "sequelize-cli": "^6.6.2",
     "tronweb": "^6.0.1"

@@ -14,7 +14,7 @@ async function getUsdtBalance(address) {
     try {
         if (!tronWeb.isAddress(address)) throw new Error("Invalid TRX address");
 
-        console.log(`Checking USDT balance for: ${address}`);
+        // console.log(`Checking USDT balance for: ${address}`);
         
         // ✅ Explicitly set an address before interacting with the contract
         tronWeb.setAddress(address);
