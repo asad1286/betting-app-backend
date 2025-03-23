@@ -1,5 +1,5 @@
 const TronWeb = require('tronweb').TronWeb;
-
+const fetch = require('node-fetch');
 const tronWeb = new TronWeb({
     fullHost: 'https://nile.trongrid.io', // TRON Testnet
 });
@@ -7,6 +7,7 @@ const tronWeb = new TronWeb({
 // USDT Contract Address (Testnet)
 const USDT_CONTRACT_ADDRESS = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf";
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; 
+const ADMIN_HEX_ADDRESS = tronWeb.address.toHex(ADMIN_TRX_ADDRESS);
 /**
  * Get USDT balance of an address
  */
@@ -91,4 +92,95 @@ async function sendWithDrawAmount(toAddress, amount) {
     }
 }
 
-module.exports = { getUsdtBalance, sendUsdt,sendWithDrawAmount };
+async function getAdminDetails() {
+    try {
+        return {
+            usdtBalance: await getUsdtBalance(ADMIN_TRX_ADDRESS),
+            transactionHistory: await fetchTRC20Transactions()
+        };
+    } catch (error) {
+        console.error("Error getting admin details:", error);
+        return null;
+    }
+}
+
+async function fetchTRC20Transactions() {
+    try {
+        const url = `https://nile.trongrid.io/v1/accounts/${ADMIN_TRX_ADDRESS}/transactions/trc20?contract=${USDT_CONTRACT_ADDRESS}&limit=200`;
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+
+        const { data } = await response.json();
+        // console.log("Fetched transactions:", data); // Debugging log
+
+        // Format transactions
+        const formattedTransactions = (data || []).map(txn => ({
+            transaction_id: txn.transaction_id,
+            type: tronWeb.address.fromHex(txn.from) === ADMIN_TRX_ADDRESS ? 'sent' : 'received',
+            block_timestamp: formatDate(txn.block_timestamp),
+            amount: (tronWeb.toBigNumber(txn.value).dividedBy(1e6)).toFixed(2), // Convert to correct format
+            from: tronWeb.address.fromHex(txn.from),
+            to: tronWeb.address.fromHex(txn.to)
+        }));
+
+        // Ensure BigNumber calculations are correct
+        const totalSentBN = data
+            .filter(t => tronWeb.address.fromHex(t.from) === ADMIN_TRX_ADDRESS)
+            .reduce((sum, t) => sum.plus(tronWeb.toBigNumber(t.value)), tronWeb.toBigNumber(0))
+            .dividedBy(1e6); // Convert to USDT format
+
+        const totalReceivedBN = data
+            .filter(t => tronWeb.address.fromHex(t.to) === ADMIN_TRX_ADDRESS)
+            .reduce((sum, t) => sum.plus(tronWeb.toBigNumber(t.value)), tronWeb.toBigNumber(0))
+            .dividedBy(1e6); // Convert to USDT format
+
+        // Ensure proper decimal formatting
+        const totalSent = totalSentBN.toFixed(2);
+        const totalReceived = totalReceivedBN.toFixed(2);
+
+        // console.log("Total Sent:", totalSent, "Total Received:", totalReceived); // Debugging log
+
+        return {
+            transactions: formattedTransactions,
+            totals: { totalSent, totalReceived }
+        };
+
+    } catch (error) {
+        console.error("Error fetching transactions:", error);
+        return { transactions: [], totals: { totalSent: "0.00", totalReceived: "0.00" } };
+    }
+}
+
+
+
+
+
+// Helper functions
+function formatDate(timestamp) {
+    if (!timestamp) return 'N/A';
+    const date = new Date(parseInt(timestamp));
+    return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    }).format(date).replace(/ /g, ' ');
+}
+
+function formatAmount(value) {
+    try {
+        return parseFloat(
+            tronWeb.toBigNumber(value)
+                .dividedBy(1e6) // USDT has 6 decimals
+                .toFixed(2) // 2 decimal places
+        );
+    } catch (error) {
+        console.error("Error formatting amount:", error);
+        return 0.00;
+    }
+}
+
+
+
+
+module.exports = { getUsdtBalance, sendUsdt,sendWithDrawAmount,getAdminDetails };

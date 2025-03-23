@@ -28,6 +28,10 @@ module.exports = (sequelize) => {
                     min: 0.01,
                 },
             },
+            amountSent: {
+                type: DataTypes.DECIMAL(10, 2),
+                allowNull: true, // Amount sent will be null until it's processed
+            },
             status: {
                 type: DataTypes.ENUM('pending', 'approved', 'rejected', 'sent'),
                 allowNull: false,
