@@ -4,7 +4,7 @@ const moment = require('moment'); // To format dates
 const { Sequelize,Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-const { sendWithDrawAmount, getUsdtBalance,getAdminDetails } = require('../tronUtils')
+const { sendWithDrawAmount, getTRXBalance,getAdminDetails } = require('../tronUtils')
 const { sendMailtoUser } = require('../mailer');
 const { use } = require('../routes/AdminRoute');
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P";
@@ -54,7 +54,7 @@ module.exports = {
                     process.env.JWT_KEY,
                     { expiresIn: '5h' }
                 );
-                const userUsdtBalance = await getUsdtBalance(user.trx20DepositAddress);
+                const userUsdtBalance = await getTRXBalance(user.trx20DepositAddress);
                 // console.log(userUsdtBalance)
                 const userResponse = {
                     id: user.id,
@@ -211,7 +211,7 @@ async updateWithdrawalRequestStatus(req, res) {
             }
 
             if (status === "approved") {
-                const adminBalance = await getUsdtBalance(ADMIN_TRX_ADDRESS);
+                const adminBalance = await getTRXBalance(ADMIN_TRX_ADDRESS);
 
                 // Deduct 10% from the withdraw amount
                 const amountSent = request.withdrawAmount * 0.9; // 90% of the original amount
@@ -254,7 +254,7 @@ async updateWithdrawalRequestStatus(req, res) {
 async getAdminDetails(req, res) {
     try {
         // Call getAdminDetails to fetch the admin information
-        const adminDetails = await getAdminDetails();
+        const adminDetails = await getAdminDetails(ADMIN_TRX_ADDRESS);
 
         // If the admin details were successfully retrieved
         if (adminDetails) {

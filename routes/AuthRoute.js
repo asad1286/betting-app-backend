@@ -15,6 +15,7 @@ router.put("/update_password",verifyJWTToken,isUser, userController.updatePasswo
 router.post('/assign-plan', verifyJWTToken, userController.assignPlanToUser);
 router.get('/user-plans', verifyJWTToken, userController.getLoggedInUserPlans);
 router.post('/withdraw-request', verifyJWTToken, userController.withdrawAmountRequest);
+router.get('/referer-user', verifyJWTToken, userController.sendAmountOnUserReferel);
 
 
 

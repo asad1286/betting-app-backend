@@ -75,6 +75,10 @@ module.exports = (sequelize) => {
                     notEmpty: { msg: 'Phone number cannot be empty' },
                 },
             },
+            firstDepositProcessed:{
+             type:DataTypes.BOOLEAN,
+             allowNull:true
+            },
             password: {
                 type: DataTypes.STRING,
                 allowNull: false,

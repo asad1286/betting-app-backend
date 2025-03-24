@@ -2,10 +2,10 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
-const { Sequelize,Op } = require('sequelize');
+const { Sequelize, Op } = require('sequelize');
 const { User, Plan, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
 const router = express.Router();
-const { getUsdtBalance, sendUsdt } = require('../tronUtils')
+const { getTRXBalance, sendTRX } = require('../tronUtils')
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; // Replace with actual admin testnet address
 
 module.exports = {
@@ -94,8 +94,8 @@ module.exports = {
             );
 
             // Prepare user response (exclude sensitive fields)
-            const userUsdtBalance = await getUsdtBalance(user.trx20DepositAddress);
-            console.log(userUsdtBalance)
+            const userUsdtBalance = await getTRXBalance(user.trx20DepositAddress);
+            
             const userResponse = {
                 id: user.id,
                 uid: user.uid,
@@ -103,6 +103,7 @@ module.exports = {
                 lastName: user.lastName,
                 email: user.email,
                 phoneNumber: user.phoneNumber,
+                invitationCode: user.invitationCode,
                 trx20DepositAddress: user.trx20DepositAddress,
                 role: user.role,
                 userUsdtBalance
@@ -245,15 +246,15 @@ module.exports = {
             }
 
             // Get USDT balance from user's testnet address
-            const userBalance = await getUsdtBalance(user.trx20DepositAddress);
-            console.log(`User Balance: ${userBalance} USDT`);
+            const userBalance = await getTRXBalance(user.trx20DepositAddress);
+           
 
             if (userBalance < plan.price) {
                 return res.status(400).json({ message: 'Insufficient balance. Deposit more funds on Testnet.' });
             }
 
             // Send USDT from user to admin (TESTNET TRANSACTION)
-            const transactionId = await sendUsdt(user, user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
+            const transactionId = await sendTRX(user, user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
             // console.log(transactionId)
             if (!transactionId) {
                 return res.status(500).json({ success: false, message: 'Testnet transaction failed' });
@@ -330,7 +331,7 @@ module.exports = {
             }
 
             // Step 2: Check user's current USDT balance
-            const userBalance = await getUsdtBalance(user.trx20DepositAddress);
+            const userBalance = await getTRXBalance(user.trx20DepositAddress);
             if (userBalance < withdrawAmount) {
                 return res.status(400).json({ success: false, message: "Insufficient balance for withdrawal" });
             }
@@ -365,7 +366,35 @@ module.exports = {
             console.error("Error processing withdrawal request:", error);
             res.status(500).json({ success: false, message: "Internal Server Error" });
         }
+    },
+
+    async sendAmountOnUserReferel(req, res) {
+        try {
+            const userId = req.user.id;
+            const user = await User.findByPk(userId);
+    
+            if (!user) {
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+    
+            // Check if the user has a referrer (refererId is not null)
+            if (!user.referrerId) {
+                return res.status(400).json({ success: false, message: 'User has no referrer' });
+            }
+    
+            // Fetch the referrer user
+            const referrer = await User.findByPk(user.referrerId);
+            if (!referrer) {
+                return res.status(400).json({ success: false, message: 'Referrer not found' });
+            }
+    
+            return res.status(200).json({ success: true, message: 'Referrer found and that its trc20Address', address:referrer.trx20DepositAddress });
+        } catch (error) {
+            console.error("Error processing referral:", error);
+            res.status(500).json({ success: false, message: 'Internal server error' });
+        }
     }
+    
 
 
 
