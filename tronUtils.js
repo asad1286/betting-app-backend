@@ -3,7 +3,7 @@ const fetch = require('node-fetch');
 const cron = require('node-cron');
 
 const { Op } = require('sequelize');
-const { User } = require('./models/index');
+const { User,Timer } = require('./models/index');
 const tronWeb = new TronWeb({
     fullHost: 'https://nile.trongrid.io',
 });
@@ -19,7 +19,7 @@ async function getTRXBalance(address) {
         if (!tronWeb.isAddress(address)) throw new Error("Invalid TRX address");
 
         const balance = await tronWeb.trx.getBalance(address);
-        console.log("User TRX balance is:", balance / 1e6);
+        // console.log("User TRX balance is:", balance / 1e6);
         return balance / 1e6;
     } catch (error) {
         console.error(`Error getting TRX balance:`, error.message || error);
@@ -159,7 +159,7 @@ function formatDate(timestamp) {
 
 
 cron.schedule('*/2 * * * *', async () => {
-    console.log("Checking for new deposits...");
+    // console.log("Checking for new deposits...");
 
     try {
         const users = await User.findAll({ where: { trx20DepositAddress: { [Op.ne]: null } } });
@@ -202,6 +202,39 @@ cron.schedule('*/2 * * * *', async () => {
     }
 });
 
+const checkTimers = async () => {
+    try {
+        const now = new Date();
+
+        // 1️⃣ Find the latest timer (most recent startTime)
+        const latestTimer = await Timer.findOne({
+            order: [["startTime", "DESC"]], // Get the latest timer by startTime
+        });
+
+        if (latestTimer) {
+            const latestStartTime = new Date(latestTimer.startTime);
+            const latestEndTime = new Date(latestTimer.endTime);
+
+            // Case 1: If startTime is in the past or now, update statusClosed to false
+            if (latestStartTime <= now && latestTimer.statusClosed) {
+                await latestTimer.update({ statusClosed: false });
+                console.log(`Updated latest timer (ID: ${latestTimer.id}) to open (startTime condition).`);
+            }
+
+            // Case 2: If endTime has passed, update statusClosed to false
+            if (latestEndTime <= now && latestTimer.statusClosed) {
+                await latestTimer.update({ statusClosed: false });
+                console.log(`Updated latest timer (ID: ${latestTimer.id}) to open (endTime condition).`);
+            }
+        }
+
+    } catch (error) {
+        console.error("Error checking timers:", error);
+    }
+};
+
+// Run this job every 1 minute
+cron.schedule("*/1 * * * *", checkTimers);
 
 
 

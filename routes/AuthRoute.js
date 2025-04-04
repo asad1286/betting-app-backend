@@ -16,6 +16,8 @@ router.post('/assign-plan', verifyJWTToken, userController.assignPlanToUser);
 router.get('/user-plans', verifyJWTToken, userController.getLoggedInUserPlans);
 router.post('/withdraw-request', verifyJWTToken, userController.withdrawAmountRequest);
 router.get('/referer-user', verifyJWTToken, userController.sendAmountOnUserReferel);
+router.post('/btc-game', verifyJWTToken, userController.createBTCGame);
+router.get('/get-btc-games', verifyJWTToken, userController.getBTCGamesByUserID);
 
 
 

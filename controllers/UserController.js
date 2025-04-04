@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
 const { Sequelize, Op } = require('sequelize');
-const { User, Plan, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
+const { User, Plan,BTCGame, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
 const router = express.Router();
 const { getTRXBalance, sendTRX } = require('../tronUtils')
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; // Replace with actual admin testnet address
@@ -393,7 +393,107 @@ module.exports = {
             console.error("Error processing referral:", error);
             res.status(500).json({ success: false, message: 'Internal server error' });
         }
+    },
+
+    async createBTCGame(req, res) {
+        // Check if the user exists in req.user
+        if (!req.user) {
+            return res.status(401).json({success:false, message: 'User is not authenticated' });
+        }
+    
+        // Check if the required fields (betAmount, startPrice, endPrice) are provided in the request body
+        const { betAmount,betType, startPrice, endPrice } = req.body;
+    
+        if (!betAmount || !startPrice || !endPrice || !betType) {
+            return res.status(400).json({success:false, message: 'Bet amount, start price, and end price are required' });
+        }
+    
+        try {
+            // Create the BTCGame without result initially
+            const newGame = await BTCGame.create({
+                betAmount,
+                betType,
+                startPrice,
+                endPrice, // No result set at this stage
+                userId: req.user.id, // Assuming req.user has the user id
+            });
+    
+            // Return the created BTCGame as a response
+            return res.status(201).json({success:true, message: 'BTC Game created successfully', game: newGame });
+        } catch (error) {
+            console.error('Error creating BTC Game:', error);
+            return res.status(500).json({success:false, message: 'Internal server error' });
+        }
+    },
+    async getBTCGamesByUserID(req, res) {
+        try {
+            const userId  = req.user.id; // Assuming the userId is passed as a route parameter, e.g. /btc-games/:userId
+    
+            // Check if the userId is provided
+            if (!userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'User ID is required',
+                    btcGames: []
+                });
+            }
+    
+            // Fetch BTCGames for the provided userId
+            const btcGames = await BTCGame.findAll({
+                where: { userId }, // Filter games by userId
+                attributes: [
+                    'id', 
+                    'userId', 
+                    'result', 
+                    'betType',
+                    'startPrice', 
+                    'endPrice', 
+                    'createdAt', 
+                    'betAmount'
+                ],
+                include: {
+                    model: User,  // Assuming your User model is called 'User'
+                    attributes: [] // No need to include extra attributes from User model
+                },
+            });
+    
+            // Check if BTC games are found
+            if (btcGames.length <= 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No BTC games found for this user',
+                    btcGames: []
+                });
+            }
+    
+            // Format the result to return only the necessary fields
+            const formattedBTCGames = btcGames.map(game => ({
+                id: game.id,
+                userId: game.userId,
+                result: game.result,
+                betType: game.betType,
+                startPrice: game.startPrice,
+                endPrice: game.endPrice,
+                createdAt: game.createdAt,
+                betAmount: game.betAmount
+            }));
+    
+            // Return success response with the formatted BTC games
+            return res.status(200).json({
+                success: true,
+                message: 'BTC games fetched successfully',
+                btcGames: formattedBTCGames
+            });
+        } catch (error) {
+            console.error('Error fetching BTC games:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error fetching BTC games',
+                btcGames: []
+            });
+        }
     }
+    
     
 
 
