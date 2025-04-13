@@ -3,7 +3,7 @@ const fetch = require('node-fetch');
 const cron = require('node-cron');
 
 const { Op } = require('sequelize');
-const { User,Timer } = require('./models/index');
+const { User,Timer,Plan,UserPlan,RewardHistory,InvitationAmount } = require('./models/index');
 const tronWeb = new TronWeb({
     fullHost: 'https://nile.trongrid.io',
 });
@@ -32,24 +32,31 @@ async function getTRXBalance(address) {
  */
 async function sendTRX(user, fromAddress, toAddress, amount) {
     try {
-        if (!user.trx20PrivateKey) throw new Error("User private key is missing");
-        if (!tronWeb.isAddress(toAddress)) throw new Error("Invalid recipient TRX address");
-
-        const userTronWeb = new TronWeb({
-            fullHost: 'https://nile.trongrid.io',
-            privateKey: user.trx20PrivateKey,
-        });
-
-        const amountInSun = tronWeb.toSun(amount);
-        console.log(`Sending ${amount} TRX to ${toAddress} on Testnet`);
-        const transaction = await userTronWeb.trx.sendTransaction(toAddress, amountInSun, { from: fromAddress });
-        console.log(`Transaction successful: ${transaction?.txid}`);
+      if (!user.trx20PrivateKey) throw new Error("User private key is missing");
+      if (!tronWeb.isAddress(toAddress)) throw new Error("Invalid recipient TRX address");
+  
+      const userTronWeb = new TronWeb({
+        fullHost: 'https://nile.trongrid.io',
+        privateKey: user.trx20PrivateKey,
+      });
+  
+      const amountInSun = userTronWeb.toSun(amount);
+      console.log(`Sending ${amount} TRX to ${toAddress} on Testnet`);
+  
+      const transaction = await userTronWeb.trx.sendTransaction(toAddress, amountInSun, { from: fromAddress });
+      
+      if (transaction && transaction.txid) {
+        console.log(`Transaction successful: ${transaction.txid}`);
         return transaction.txid;
-    } catch (error) {
-        console.error(`Error sending TRX:`, error || error);
+      } else {
+        console.error("Transaction response doesn't contain txid");
         return null;
+      }
+    } catch (error) {
+      console.error("Error sending TRX:", error);
+      return null;
     }
-}
+  }
 
 async function sendWithDrawAmount(toAddress, amount) {
     try {
@@ -156,51 +163,143 @@ function formatDate(timestamp) {
 }
 
 
-
-
-cron.schedule('*/2 * * * *', async () => {
-    // console.log("Checking for new deposits...");
-
+// Function to add a delay
+// Function to add a random delay between 3 to 4 seconds
+function delay() {
+    const randomDelay = Math.floor(Math.random() * 1000) + 3000; // Random delay between 3000 ms (3 seconds) and 4000 ms (4 seconds)
+    return new Promise(resolve => setTimeout(resolve, randomDelay));
+  }
+  
+  cron.schedule('*/2 * * * *', async () => {
     try {
-        const users = await User.findAll({ where: { trx20DepositAddress: { [Op.ne]: null } } });
-
-        for (const user of users) {
-            const { transactions } = await fetchTRXTransactions(user.trx20DepositAddress);
-
-            if (transactions.length > 0) {
-                const firstDeposit = transactions[transactions.length - 1]; // Latest transaction
-
-                // Check if it's the first deposit
-                if (!user.firstDepositProcessed) {
-                    // console.log(`First deposit detected for user ${user.id}:`, firstDeposit);
-
-                    // Extract deposit amount & calculate 10%
-                    const depositAmount = parseFloat(firstDeposit.amount); // Convert to number
-                    const referralBonus = (depositAmount * 0.10).toFixed(2); // 10% of deposit
-
-                    // Check if user has a referrer
-                    if (user.referrerId) {
-                        const referrer = await User.findByPk(user.referrerId);
-                        if (referrer) {
-                            console.log(`Sending ${referralBonus} TRX to referrer ${referrer.id}`);
-
-                            // Send referral bonus (10% of deposit)
-                            const tx = await sendTRX(user, user.trx20DepositAddress, referrer.trx20DepositAddress, referralBonus);
-                            console.log(`Referral bonus sent: ${tx}`);
-
-                            // Update user record to prevent duplicate rewards
-                            if (tx) {
-                                await user.update({ firstDepositProcessed: true });
-                            }
-                        }
-                    }
-                }
-            }
+      const now = new Date();
+      console.log("🏁 Running daily reward cron...");
+  
+      const activeUserPlans = await UserPlan.findAll({
+        where: {
+          paymentStatus: 'completed',
+          expiresAt: { [Op.gt]: now },
+        },
+        include: [
+          { model: Plan },
+          { model: User }
+        ]
+      });
+  
+      for (const userPlan of activeUserPlans) {
+        const { userId, Plan: plan, User: user } = userPlan;
+        const reward = parseFloat(plan.dailyReward);
+  
+        if (!user.trx20DepositAddress) {
+          console.log(`⚠️ User ${userId} has no TRX address`);
+          continue;
         }
+  
+        // Check if reward was already sent today
+        const alreadySent = await RewardHistory.findOne({
+          where: {
+            userId,
+            planId: plan.id,
+            createdAt: {
+              [Op.gte]: new Date(new Date().setHours(0, 0, 0, 0)), // today
+            }
+          }
+        });
+  
+        if (alreadySent) {
+          console.log(`⏩ Reward already sent today to user ${userId} for plan ${plan.id}`);
+          continue;
+        }
+  
+        // Delay each transaction by a random time (between 3 to 4 seconds)
+        await delay();
+  
+        // Try to send TRX
+        try {
+          const txHash = await sendWithDrawAmount(user.trx20DepositAddress, reward);
+  
+          if (txHash) {
+            await RewardHistory.create({
+              userId,
+              planId: plan.id,
+              rewardAmount: reward,
+              status: 'sent',
+              trxHash: txHash
+            });
+  
+            console.log(`✅ Sent ${reward} TRX to user ${userId} | TX: ${txHash}`);
+          } else {
+            console.error(`❌ Failed to send TRX to user ${userId}: Transaction failed, no txHash`);
+          }
+        } catch (err) {
+          console.error(`❌ Failed to send TRX to user ${userId}:`, err.message);
+          // Skip creating RewardHistory record for failed transaction
+        }
+      }
+  
+      console.log("✅ Daily reward cron finished.");
     } catch (error) {
-        console.error("Error in referral processing:", error);
+      console.error("🔥 Error in daily reward cron:", error);
     }
-});
+  });
+  
+  
+  
+
+// cron.schedule('*/2 * * * *', async () => {
+//     try {
+//         const now = new Date();
+//         console.log("Checking Invited Users")
+//         // Find users who were referred and have an active plan
+//         const referredUsers = await User.findAll({
+//             where: {
+//                 referrerId: { [Op.ne]: null }
+//             },
+//             include: [{
+//                 model: UserPlan,
+//                 where: {
+//                     expiresAt: { [Op.gt]: now },
+//                     paymentStatus: 'completed'
+//                 },
+//                 include: [Plan]
+//             }]
+//         });
+
+//         for (const user of referredUsers) {
+//             const activePlan = user.UserPlans[0]; // Assuming one active plan at a time
+//             const plan = activePlan.Plan;
+
+//             const reward = (parseFloat(plan.price) * 0.10).toFixed(2);
+
+//             // Check if a record already exists for this plan & user
+//             const existing = await InvitationAmount.findOne({
+//                 where: {
+//                     userId: user.referrerId,
+//                     planId: plan.id
+//                 }
+//             });
+
+//             if (!existing) {
+//                 await InvitationAmount.create({
+//                     userId: user.referrerId,
+//                     planId: plan.id,
+//                     amountSent: reward,
+//                     status: 'pending'
+//                 });
+
+//                 console.log(`Reward ${reward} TRX set for referrer ${user.referrerId} from user ${user.id}`);
+//             }
+//         }
+//     } catch (error) {
+//         console.error("Error in referral reward cron:", error);
+//     }
+// });
+
+
+
+
+
+
 
 const checkTimers = async () => {
     try {

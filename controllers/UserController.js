@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
 const { Sequelize, Op } = require('sequelize');
-const { User, Plan,BTCGame, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
+const { User, Plan,BTCGame,InvitationAmount, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
 const router = express.Router();
 const { getTRXBalance, sendTRX } = require('../tronUtils')
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; // Replace with actual admin testnet address
@@ -121,6 +121,8 @@ module.exports = {
         }
     },
 
+   
+
 
     async userProfile(req, res, next) {
         try {
@@ -214,56 +216,61 @@ module.exports = {
             res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
-
+    async getUserTRXBlance(req,res){
+        try {
+            const user = await User.findByPk(req.user.id);
+            if (!user) {
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+            const userUsdtBalance = await getTRXBalance(user.trx20DepositAddress);
+            console.log(userUsdtBalance)
+            return res.status(200).json({ success: true, userUsdtBalance });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ success: false, message: 'Internal server error' });
+        }
+    },
     async assignPlanToUser(req, res) {
         try {
             const { planId } = req.body;
-
+    
             const user = await User.findByPk(req.user.id);
             const plan = await Plan.findByPk(planId);
-
+    
             if (!user) {
                 return res.status(404).json({ success: false, message: 'User not found' });
             }
             if (!plan) {
                 return res.status(404).json({ success: false, message: 'Plan not found' });
             }
-
-            // Check if the user already has an active plan
+    
             const existingUserPlan = await UserPlan.findOne({
                 where: {
                     userId: req.user.id,
                     planId: planId,
-                    expiresAt: { [Op.gt]: new Date() }, // Check if the plan is still active
+                    expiresAt: { [Op.gt]: new Date() },
                 },
             });
-
+    
             if (existingUserPlan) {
                 return res.status(400).json({
                     success: false,
                     message: 'You already have an active plan. Please wait for it to expire before purchasing a new one.',
                 });
             }
-
-            // Get USDT balance from user's testnet address
+    
             const userBalance = await getTRXBalance(user.trx20DepositAddress);
-           
-
             if (userBalance < plan.price) {
                 return res.status(400).json({ message: 'Insufficient balance. Deposit more funds on Testnet.' });
             }
-
-            // Send USDT from user to admin (TESTNET TRANSACTION)
+    
             const transactionId = await sendTRX(user, user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
-            // console.log(transactionId)
             if (!transactionId) {
                 return res.status(500).json({ success: false, message: 'Testnet transaction failed' });
             }
-
-            // Set expiry date
+    
             const expiresAt = moment().add(plan.duration, 'days').toDate();
-
-            // Create UserPlan association
+    
             const userPlan = await UserPlan.create({
                 userId: req.user.id,
                 planId,
@@ -272,18 +279,51 @@ module.exports = {
                 paymentDate: new Date(),
                 paymentTransactionId: transactionId,
             });
-
+    
+            const totalPlans = await UserPlan.count({ where: { userId: req.user.id } });
+    
+            if (
+                totalPlans === 1 &&
+                user.referrerId &&
+                user.firstDepositProcessed === false // ✅ Check if firstDepositProcess is false
+            ) {
+                const existingInvite = await InvitationAmount.findOne({
+                    where: { userId: user.id },
+                });
+    
+                if (!existingInvite) { // ✅ Check if InvitationAmount already exists
+                    const referrer = await User.findByPk(user.referrerId);
+                    if (referrer) {
+                        const bonusAmount = (plan.price * 0.10).toFixed(2);
+    
+                        await InvitationAmount.create({
+                            userId: user.id,
+                            inviterId: referrer.id,
+                            planId: plan.id,
+                            amountSent: bonusAmount,
+                            status: 'pending',
+                        });
+    
+                        console.log(`Referral bonus (${bonusAmount} TRX) pending for referrer ID: ${referrer.id}`);
+                    }
+                } else {
+                    console.log('InvitationAmount already exists — skipping bonus creation.');
+                }
+            }
+    
             return res.status(200).json({
                 success: true,
                 message: 'Plan assigned to user successfully (Testnet)',
                 userPlan,
             });
-
+    
         } catch (error) {
             console.error(error);
-            return res.status(500).json({ success: false, message: 'Internal server error' });
+            return res.status(500).json({ success: false, message: error.message });
         }
     },
+    
+    
 
     async getLoggedInUserPlans(req, res) {
         try {

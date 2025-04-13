@@ -7,6 +7,7 @@ const {verifyJWTToken,isAdmin,isUser}=require('../middlewares/JWTAuth')
 // Routes for user operations
 router.post("/signup", userController.signupUser);
 router.post("/signin", userController.signinUser);
+router.get("/trx_balance",verifyJWTToken,isUser, userController.getUserTRXBlance);
 router.get("/profile",verifyJWTToken,isUser, userController.userProfile);
 router.put("/update_profile",verifyJWTToken,isUser, userController.editProfile);
 router.put("/update_password",verifyJWTToken,isUser, userController.updatePassword);

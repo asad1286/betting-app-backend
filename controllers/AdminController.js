@@ -1,10 +1,10 @@
-const { Plan, User,BTCGame, UserPlan,Timer, WithdrawalRequest } = require('../models/index'); // Import the models
+const { Plan, User, BTCGame, InvitationAmount, UserPlan, Timer, WithdrawalRequest } = require('../models/index'); // Import the models
 const moment = require('moment'); // To format dates
 // We will use this to set the expiry date for the plan
-const { Sequelize,Op, where } = require('sequelize');
+const { Sequelize, Op, where } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-const { sendWithDrawAmount, getTRXBalance,getAdminDetails } = require('../tronUtils')
+const { sendWithDrawAmount, getTRXBalance, getAdminDetails } = require('../tronUtils')
 const { sendMailtoUser } = require('../mailer');
 const { use } = require('../routes/AdminRoute');
 const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P";
@@ -74,13 +74,13 @@ module.exports = {
                     admin: userResponse, // Return sanitized user data
                 });
                 // Prepare user response (exclude sensitive fields)
-            }else{
+            } else {
                 return res.status(403).json({
                     success: false,
                     message: 'Your are not a admin user',
                 });
             }
-            
+
 
         } catch (error) {
             console.error(error);
@@ -137,11 +137,107 @@ module.exports = {
     },
 
 
+
+    async getInvitationAmounts(req, res) {
+        try {
+            const invitations = await InvitationAmount.findAll({
+                include: [
+                    {
+                        model: Plan,
+                        as: 'plan',
+                        attributes: ['name'], // only fetch the plan name
+                    },
+                ],
+            });
+
+            if (invitations.length > 0) {
+                const response = invitations.map((pln) => ({
+                    id: pln.id,
+                    userId: pln.userId,
+                    inviterId: pln.inviterId,
+                    planId: pln.planId,
+                    planName: pln.plan?.name || null,
+                    amountSent: pln.amountSent,
+                    status: pln.status,
+                }));
+
+                return res.status(200).json({
+                    success: true,
+                    invitations: response,
+                });
+            } else {
+                return res.status(200).json({
+                    success: true,
+                    invitations: [],
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            return res.status(500).json({ success: false, message: 'Internal server error' });
+        }
+    },
+
+
+
+    async  updateInvitationStatus(req, res) {
+        try {
+            const { status } = req.body;
+            const { id } = req.params;
+            
+            const invitation = await InvitationAmount.findByPk(id);
+            if (!invitation) {
+                return res.status(404).json({ success: false, message: 'Invitation not found' });
+            }
+            
+            
+            if (status === 'sent' && invitation.status==='pending') {
+                // Fetch the referred user (the one receiving the amount)
+                const referredUser = await User.findByPk(invitation.userId);
+    
+                if (!referredUser || !referredUser.trx20DepositAddress) {
+                    return res.status(404).json({ success: false, message: 'User or deposit address not found' });
+                }
+    
+                const amountSent = parseFloat(invitation.amountSent);
+                const adminBalance = await getTRXBalance(ADMIN_TRX_ADDRESS);
+    
+                if (adminBalance < amountSent) {
+                    return res.status(400).json({ success: false, message: 'Insufficient funds in admin account' });
+                }
+    
+                const txHash = await sendWithDrawAmount(referredUser.trx20DepositAddress, amountSent);
+                if (!txHash) {
+                    return res.status(500).json({ success: false, message: 'USDT transfer failed' });
+                }
+    
+                // Update invitation status to sent
+                await invitation.update({ status: 'sent' });
+    
+                // Update inviter user's firstDepositProcessed to true
+                await User.update(
+                    { firstDepositProcessed: true },
+                    { where: { id: invitation.userId } }
+                );
+    
+                return res.status(200).json({ success: true, message: 'Amount sent and status updated' });
+            } else {
+              
+                return res.status(404).json({ success: true, message: 'status not pending plz check' });
+            }
+        } catch (error) {
+            console.error('Update invitation status error:', error);
+            return res.status(500).json({ success: false, message: 'Internal server error' });
+        }
+    },
+
+
+
+
     async getAllWithdrawalRequests(req, res) {
         try {
             // Fetch all withdrawal requests with only the necessary attributes
             const withdrawalRequests = await WithdrawalRequest.findAll({
-                attributes: ['id', 'userId', 'trc20WithdrawAddress', 'withdrawAmount', 'amountSent','status', 'createdAt'], // Fetch specific attributes
+                attributes: ['id', 'userId', 'trc20WithdrawAddress', 'withdrawAmount', 'amountSent', 'status', 'createdAt'], // Fetch specific attributes
                 order: [['createdAt', 'DESC']], // Order by creation date descending
             });
 
@@ -173,7 +269,7 @@ module.exports = {
         }
     },
 
-async updateWithdrawalRequestStatus(req, res) {
+    async updateWithdrawalRequestStatus(req, res) {
         try {
             const { requestId } = req.params;
             const { status, reason } = req.body;
@@ -220,7 +316,7 @@ async updateWithdrawalRequestStatus(req, res) {
                     return res.status(400).json({ success: false, message: "Insufficient funds in admin account" });
                 }
 
-                
+
                 const transactionHash = await sendWithDrawAmount(request.trc20WithdrawAddress, amountSent);
 
                 if (!transactionHash) {
@@ -228,7 +324,7 @@ async updateWithdrawalRequestStatus(req, res) {
                 }
 
                 // Update request status to "sent"
-                await request.update({ status: "sent", amountSent});
+                await request.update({ status: "sent", amountSent });
 
                 return res.status(200).json({
                     success: true,
@@ -250,236 +346,238 @@ async updateWithdrawalRequestStatus(req, res) {
             console.error("Error updating withdrawal request status:", error);
             return res.status(500).json({ success: false, message: "Internal Server Error" });
         }
-},
-async getAdminDetails(req, res) {
-    try {
-        // Call getAdminDetails to fetch the admin information
-        const adminDetails = await getAdminDetails(ADMIN_TRX_ADDRESS);
+    },
+    async getAdminDetails(req, res) {
+        try {
+            // Call getAdminDetails to fetch the admin information
+            const adminDetails = await getAdminDetails(ADMIN_TRX_ADDRESS);
 
-        // If the admin details were successfully retrieved
-        if (adminDetails) {
-            return res.status(200).json({
-                success: true,
-                data: adminDetails
-            });
-        } else {
+            // If the admin details were successfully retrieved
+            if (adminDetails) {
+                return res.status(200).json({
+                    success: true,
+                    data: adminDetails
+                });
+            } else {
+                return res.status(500).json({
+                    success: false,
+                    message: "Failed to fetch admin details."
+                });
+            }
+        } catch (error) {
+            console.error("Error fetching admin details:", error);
             return res.status(500).json({
                 success: false,
-                message: "Failed to fetch admin details."
+                message: error.message || "An unexpected error occurred."
             });
         }
-    } catch (error) {
-        console.error("Error fetching admin details:", error);
-        return res.status(500).json({
-            success: false,
-            message: error.message || "An unexpected error occurred."
-        });
-    }
-},
-async getAllUsers(req, res) {
-    try {
-      const { count, rows: users } = await User.findAndCountAll({
-        attributes: { exclude: ["password",'updatedAt','withdrawPassword','refererId','invitationCode','deletedAt','trx20PrivateKey',] }, // Exclude password field
-      });
+    },
+    async getAllUsers(req, res) {
+        try {
+            const { count, rows: users } = await User.findAndCountAll({
+                attributes: { exclude: ["password", 'updatedAt', 'withdrawPassword', 'refererId', 'invitationCode', 'deletedAt', 'trx20PrivateKey',] }, // Exclude password field
+            });
 
-      res.status(200).json({
-        success: true,
-        totalCount: count,
-        users,
-      });
-    } catch (error) {
-      res.status(500).json({ success: false, error: "Failed to fetch users" });
-    }
-  },
-
-  async addTimer(req, res) {
-    try {
-        const { startTime, endTime } = req.body;
-        console.log(req.body);
-
-        if (!endTime) {
-            return res.status(400).json({ message: "endTime is required" });
+            res.status(200).json({
+                success: true,
+                totalCount: count,
+                users,
+            });
+        } catch (error) {
+            res.status(500).json({ success: false, error: "Failed to fetch users" });
         }
+    },
 
-        // If startTime is not provided, default it to the current time
-        const newStartTime = startTime ? new Date(startTime) : new Date();
-        const newEndTime = new Date(endTime);
+    async addTimer(req, res) {
+        try {
+            const { startTime, endTime } = req.body;
+            console.log(req.body);
 
-        // Check if startTime is in the past or equal to current time
-        const currentTime = new Date();
-        const statusClosed = newStartTime <= currentTime ? false : true;
+            if (!endTime) {
+                return res.status(400).json({ message: "endTime is required" });
+            }
 
-        const newTimer = await Timer.create({
-            startTime: newStartTime,
-            endTime: newEndTime,
-            statusClosed,
-        });
+            // If startTime is not provided, default it to the current time
+            const newStartTime = startTime ? new Date(startTime) : new Date();
+            const newEndTime = new Date(endTime);
 
-        res.status(201).json({ success: true, message: "Timer added successfully", timer: newTimer });
-    } catch (error) {
-        console.error("Error adding timer:", error);
-        res.status(500).json({ message: "Internal server error", error: error.message });
-    }
-},
+            // Check if startTime is in the past or equal to current time
+            const currentTime = new Date();
+            const statusClosed = newStartTime <= currentTime ? false : true;
 
+            const newTimer = await Timer.create({
+                startTime: newStartTime,
+                endTime: newEndTime,
+                statusClosed,
+            });
 
-  async latestTimer(req,res){
-    try {
-        const latestTimer = await Timer.findOne({
-            order: [["createdAt", "DESC"]], // Get the latest record based on createdAt
-        });
-
-        if (!latestTimer) {
-            return res.status(404).json({success:false,message: "No timer found" });
+            res.status(201).json({ success: true, message: "Timer added successfully", timer: newTimer });
+        } catch (error) {
+            console.error("Error adding timer:", error);
+            res.status(500).json({ message: "Internal server error", error: error.message });
         }
+    },
 
-        res.status(200).json({ success:true, timer: latestTimer });
-    } catch (error) {
-        console.error("Error fetching latest timer:", error);
-        res.status(500).json({success:false, error: error.message });
-    }
-  },
 
-  async getAllBTCGames(req,res){
-    try {
-        // Fetch all BTCGames with the required fields
-        const btcGames = await BTCGame.findAll({
-            attributes: [
-                'id', 
-                'userId', 
-                'result', 
-                'startPrice', 
-                'endPrice', 
-                'betType',
-                'createdAt', 
-                'betAmount'
-            ],
-            include: {
-                model: User,  // Assuming your User model is called 'User'
-                attributes: [] // No need to include extra attributes from User model
-            },
-        });
+    async latestTimer(req, res) {
+        try {
+            const latestTimer = await Timer.findOne({
+                order: [["createdAt", "DESC"]], // Get the latest record based on createdAt
+            });
 
-        // Check if BTC games are found
-        if (btcGames.length <= 0) {
-            return res.status(404).json({
+            if (!latestTimer) {
+                return res.status(404).json({ success: false, message: "No timer found" });
+            }
+
+            res.status(200).json({ success: true, timer: latestTimer });
+        } catch (error) {
+            console.error("Error fetching latest timer:", error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    async getAllBTCGames(req, res) {
+        try {
+            // Fetch all BTCGames with the required fields
+            const btcGames = await BTCGame.findAll({
+                attributes: [
+                    'id',
+                    'userId',
+                    'result',
+                    'startPrice',
+                    'endPrice',
+                    'betType',
+                    'createdAt',
+                    'betAmount'
+                ],
+                include: {
+                    model: User,  // Assuming your User model is called 'User'
+                    attributes: [] // No need to include extra attributes from User model
+                },
+            });
+
+            // Check if BTC games are found
+            if (btcGames.length <= 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No BTC games found',
+                    btcGames: []
+                });
+            }
+
+            // Format the result to return only the necessary fields
+            const formattedBTCGames = btcGames.map(game => ({
+                id: game.id,
+                userId: game.userId,
+                result: game.result,
+                betType: game.betType,
+                startPrice: game.startPrice,
+                endPrice: game.endPrice,
+                createdAt: game.createdAt,
+                betAmount: game.betAmount
+            }));
+
+            // Return success response with the formatted BTC games
+            return res.status(200).json({
+                success: true,
+                message: 'BTC games fetched successfully',
+                btcGames: formattedBTCGames
+            });
+        } catch (error) {
+            console.error('Error fetching BTC games:', error);
+            return res.status(500).json({
                 success: false,
-                message: 'No BTC games found',
+                message: 'Error fetching BTC games',
                 btcGames: []
             });
         }
+    },
+    async updateResultStatus(req, res) {
+        const { gameId } = req.params; // Get the gameId from the URL parameters
+        const { result } = req.body; // Get the new result value ('win', 'lost', 'pending')
 
-        // Format the result to return only the necessary fields
-        const formattedBTCGames = btcGames.map(game => ({
-            id: game.id,
-            userId: game.userId,
-            result: game.result,
-            betType: game.betType,
-            startPrice: game.startPrice,
-            endPrice: game.endPrice,
-            createdAt: game.createdAt,
-            betAmount: game.betAmount
-        }));
-
-        // Return success response with the formatted BTC games
-        return res.status(200).json({success: true,
-            message: 'BTC games fetched successfully',
-            btcGames: formattedBTCGames});
-    } catch (error) {
-        console.error('Error fetching BTC games:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Error fetching BTC games',
-            btcGames: []
-        });
-    }
-},
-async updateResultStatus(req, res) {
-    const { gameId } = req.params; // Get the gameId from the URL parameters
-    const { result } = req.body; // Get the new result value ('win', 'lost', 'pending')
-
-    // Validate result value
-    if (!['win', 'lost', 'pending'].includes(result)) {
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid result status. It must be one of "win", "lost", or "pending".'
-        });
-    }
-
-    try {
-        // Find the game by its ID
-        const game = await BTCGame.findByPk(gameId);
-
-        // Check if the game exists
-        if (!game) {
-            return res.status(404).json({
+        // Validate result value
+        if (!['win', 'lost', 'pending'].includes(result)) {
+            return res.status(400).json({
                 success: false,
-                message: 'Game not found.'
+                message: 'Invalid result status. It must be one of "win", "lost", or "pending".'
             });
         }
 
-        // Update the result status of the game
-        game.result = result;
-        await game.save(); // Save the updated game
+        try {
+            // Find the game by its ID
+            const game = await BTCGame.findByPk(gameId);
 
-        // Return success response
-        return res.status(200).json({
-            success: true,
-            message: `Game result updated to ${result}.`,
-        });
-    } catch (error) {
-        // console.error('Error updating game result:', error);
-        return res.status(500).json({
-            success: false,
-            message: 'Error updating game result.',
-        });
-    }
-},
+            // Check if the game exists
+            if (!game) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Game not found.'
+                });
+            }
 
-async deletePlan(req,res){
-    try {
-        const {planId}=req.params;
+            // Update the result status of the game
+            game.result = result;
+            await game.save(); // Save the updated game
 
-        const plan=await Plan.findByPk(planId);
-        if(!plan){
-            return res.status(404).json({success:false,message:"Plan not found"})
+            // Return success response
+            return res.status(200).json({
+                success: true,
+                message: `Game result updated to ${result}.`,
+            });
+        } catch (error) {
+            // console.error('Error updating game result:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error updating game result.',
+            });
         }
-        await UserPlan.destroy({ where: { planId } });
-        await Plan.destroy({where:{id:planId}});
+    },
 
-        return res.status(200).json({success:true,message:"Plan deleted successfully"})
-            
-    } catch (error) {
-        return res.status(500).json({success:false,message:error.message})
-        
+    async deletePlan(req, res) {
+        try {
+            const { planId } = req.params;
+
+            const plan = await Plan.findByPk(planId);
+            if (!plan) {
+                return res.status(404).json({ success: false, message: "Plan not found" })
+            }
+            await UserPlan.destroy({ where: { planId } });
+            await Plan.destroy({ where: { id: planId } });
+
+            return res.status(200).json({ success: true, message: "Plan deleted successfully" })
+
+        } catch (error) {
+            return res.status(500).json({ success: false, message: error.message })
+
+        }
+    },
+    async editPlan(req, res) {
+        try {
+            const { planId } = req.params;
+            const { name, price, duration, dailyReward } = req.body; // Data to update
+
+            // Find the plan by its ID
+            const plan = await Plan.findByPk(planId);
+            if (!plan) {
+                return res.status(404).json({ success: false, message: "Plan not found" });
+            }
+
+            // Update the plan's details
+            plan.name = name || plan.name;
+            plan.price = price || plan.price;
+            plan.duration = duration || plan.duration;
+            plan.dailyReward = dailyReward || plan.dailyReward;
+
+            // Save the updated plan
+            await plan.save();
+
+            return res.status(200).json({ success: true, message: "Plan updated successfully" });
+        } catch (error) {
+            return res.status(500).json({ success: false, message: error.message });
+        }
     }
-},
-async editPlan(req, res) {
-    try {
-      const { planId } = req.params;
-      const { name, price, duration, dailyReward } = req.body; // Data to update
-  
-      // Find the plan by its ID
-      const plan = await Plan.findByPk(planId);
-      if (!plan) {
-        return res.status(404).json({ success: false, message: "Plan not found" });
-      }
-  
-      // Update the plan's details
-      plan.name = name || plan.name;
-      plan.price = price || plan.price;
-      plan.duration = duration || plan.duration;
-      plan.dailyReward = dailyReward || plan.dailyReward;
-  
-      // Save the updated plan
-      await plan.save();
-  
-      return res.status(200).json({ success: true, message: "Plan updated successfully" });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: error.message });
-    }
-  }
-  
+
     // Controller to assign a plan to a user
 
 
