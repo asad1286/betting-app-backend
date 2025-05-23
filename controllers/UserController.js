@@ -3,15 +3,16 @@ const jwt = require('jsonwebtoken');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
 const { Sequelize, Op } = require('sequelize');
-const { User, Plan,BTCGame,InvitationAmount, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
+const { User, Plan, BTCGame, InvitationAmount, UserPlan, WithdrawalRequest } = require('../models/index'); // Import User model
 const router = express.Router();
 const { getTRXBalance, sendTRX } = require('../tronUtils')
-const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P"; // Replace with actual admin testnet address
+const ADMIN_TRX_ADDRESS = process.env.ADMIN_TRX_ADDRESS; // Replace with actual admin testnet address
 
 module.exports = {
 
     async signupUser(req, res, next) {
         try {
+            console.log(req.body)
             const { firstName, lastName, email, phoneNumber, password, withdrawPassword, invitationCode } = req.body;
 
             let referrer = null;
@@ -95,7 +96,7 @@ module.exports = {
 
             // Prepare user response (exclude sensitive fields)
             const userUsdtBalance = await getTRXBalance(user.trx20DepositAddress);
-            
+            console.log("userUsdtBalance", userUsdtBalance)
             const userResponse = {
                 id: user.id,
                 uid: user.uid,
@@ -121,7 +122,7 @@ module.exports = {
         }
     },
 
-   
+
 
 
     async userProfile(req, res, next) {
@@ -216,7 +217,7 @@ module.exports = {
             res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
-    async getUserTRXBlance(req,res){
+    async getUserTRXBlance(req, res) {
         try {
             const user = await User.findByPk(req.user.id);
             if (!user) {
@@ -233,17 +234,17 @@ module.exports = {
     async assignPlanToUser(req, res) {
         try {
             const { planId } = req.body;
-    
+
             const user = await User.findByPk(req.user.id);
             const plan = await Plan.findByPk(planId);
-    
+
             if (!user) {
                 return res.status(404).json({ success: false, message: 'User not found' });
             }
             if (!plan) {
                 return res.status(404).json({ success: false, message: 'Plan not found' });
             }
-    
+
             const existingUserPlan = await UserPlan.findOne({
                 where: {
                     userId: req.user.id,
@@ -251,26 +252,26 @@ module.exports = {
                     expiresAt: { [Op.gt]: new Date() },
                 },
             });
-    
+
             if (existingUserPlan) {
                 return res.status(400).json({
                     success: false,
                     message: 'You already have an active plan. Please wait for it to expire before purchasing a new one.',
                 });
             }
-    
+
             const userBalance = await getTRXBalance(user.trx20DepositAddress);
             if (userBalance < plan.price) {
                 return res.status(400).json({ message: 'Insufficient balance. Deposit more funds on Testnet.' });
             }
-    
+
             const transactionId = await sendTRX(user, user.trx20DepositAddress, ADMIN_TRX_ADDRESS, plan.price);
             if (!transactionId) {
                 return res.status(500).json({ success: false, message: 'Testnet transaction failed' });
             }
-    
+
             const expiresAt = moment().add(plan.duration, 'days').toDate();
-    
+
             const userPlan = await UserPlan.create({
                 userId: req.user.id,
                 planId,
@@ -279,23 +280,23 @@ module.exports = {
                 paymentDate: new Date(),
                 paymentTransactionId: transactionId,
             });
-    
+
             const totalPlans = await UserPlan.count({ where: { userId: req.user.id } });
-    
+            
             if (
                 totalPlans === 1 &&
                 user.referrerId &&
-                user.firstDepositProcessed === false // ✅ Check if firstDepositProcess is false
+                (user.firstDepositProcessed === false || user.firstDepositProcessed === null)
             ) {
                 const existingInvite = await InvitationAmount.findOne({
                     where: { userId: user.id },
                 });
-    
+
                 if (!existingInvite) { // ✅ Check if InvitationAmount already exists
                     const referrer = await User.findByPk(user.referrerId);
                     if (referrer) {
                         const bonusAmount = (plan.price * 0.10).toFixed(2);
-    
+
                         await InvitationAmount.create({
                             userId: user.id,
                             inviterId: referrer.id,
@@ -303,27 +304,29 @@ module.exports = {
                             amountSent: bonusAmount,
                             status: 'pending',
                         });
-    
+
                         console.log(`Referral bonus (${bonusAmount} TRX) pending for referrer ID: ${referrer.id}`);
                     }
                 } else {
                     console.log('InvitationAmount already exists — skipping bonus creation.');
                 }
+            } else {
+                console.log("not matching ")
             }
-    
+
             return res.status(200).json({
                 success: true,
                 message: 'Plan assigned to user successfully (Testnet)',
                 userPlan,
             });
-    
+
         } catch (error) {
             console.error(error);
             return res.status(500).json({ success: false, message: error.message });
         }
     },
-    
-    
+
+
 
     async getLoggedInUserPlans(req, res) {
         try {
@@ -412,23 +415,23 @@ module.exports = {
         try {
             const userId = req.user.id;
             const user = await User.findByPk(userId);
-    
+
             if (!user) {
                 return res.status(404).json({ success: false, message: 'User not found' });
             }
-    
+
             // Check if the user has a referrer (refererId is not null)
             if (!user.referrerId) {
                 return res.status(400).json({ success: false, message: 'User has no referrer' });
             }
-    
+
             // Fetch the referrer user
             const referrer = await User.findByPk(user.referrerId);
             if (!referrer) {
                 return res.status(400).json({ success: false, message: 'Referrer not found' });
             }
-    
-            return res.status(200).json({ success: true, message: 'Referrer found and that its trc20Address', address:referrer.trx20DepositAddress });
+
+            return res.status(200).json({ success: true, message: 'Referrer found and that its trc20Address', address: referrer.trx20DepositAddress });
         } catch (error) {
             console.error("Error processing referral:", error);
             res.status(500).json({ success: false, message: 'Internal server error' });
@@ -438,16 +441,16 @@ module.exports = {
     async createBTCGame(req, res) {
         // Check if the user exists in req.user
         if (!req.user) {
-            return res.status(401).json({success:false, message: 'User is not authenticated' });
+            return res.status(401).json({ success: false, message: 'User is not authenticated' });
         }
-    
+
         // Check if the required fields (betAmount, startPrice, endPrice) are provided in the request body
-        const { betAmount,betType, startPrice, endPrice } = req.body;
-    
+        const { betAmount, betType, startPrice, endPrice } = req.body;
+
         if (!betAmount || !startPrice || !endPrice || !betType) {
-            return res.status(400).json({success:false, message: 'Bet amount, start price, and end price are required' });
+            return res.status(400).json({ success: false, message: 'Bet amount, start price, and end price are required' });
         }
-    
+
         try {
             // Create the BTCGame without result initially
             const newGame = await BTCGame.create({
@@ -457,18 +460,18 @@ module.exports = {
                 endPrice, // No result set at this stage
                 userId: req.user.id, // Assuming req.user has the user id
             });
-    
+
             // Return the created BTCGame as a response
-            return res.status(201).json({success:true, message: 'BTC Game created successfully', game: newGame });
+            return res.status(201).json({ success: true, message: 'BTC Game created successfully', game: newGame });
         } catch (error) {
             console.error('Error creating BTC Game:', error);
-            return res.status(500).json({success:false, message: 'Internal server error' });
+            return res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
     async getBTCGamesByUserID(req, res) {
         try {
-            const userId  = req.user.id; // Assuming the userId is passed as a route parameter, e.g. /btc-games/:userId
-    
+            const userId = req.user.id; // Assuming the userId is passed as a route parameter, e.g. /btc-games/:userId
+
             // Check if the userId is provided
             if (!userId) {
                 return res.status(400).json({
@@ -477,18 +480,18 @@ module.exports = {
                     btcGames: []
                 });
             }
-    
+
             // Fetch BTCGames for the provided userId
             const btcGames = await BTCGame.findAll({
                 where: { userId }, // Filter games by userId
                 attributes: [
-                    'id', 
-                    'userId', 
-                    'result', 
+                    'id',
+                    'userId',
+                    'result',
                     'betType',
-                    'startPrice', 
-                    'endPrice', 
-                    'createdAt', 
+                    'startPrice',
+                    'endPrice',
+                    'createdAt',
                     'betAmount'
                 ],
                 include: {
@@ -496,7 +499,7 @@ module.exports = {
                     attributes: [] // No need to include extra attributes from User model
                 },
             });
-    
+
             // Check if BTC games are found
             if (btcGames.length <= 0) {
                 return res.status(404).json({
@@ -505,7 +508,7 @@ module.exports = {
                     btcGames: []
                 });
             }
-    
+
             // Format the result to return only the necessary fields
             const formattedBTCGames = btcGames.map(game => ({
                 id: game.id,
@@ -517,7 +520,7 @@ module.exports = {
                 createdAt: game.createdAt,
                 betAmount: game.betAmount
             }));
-    
+
             // Return success response with the formatted BTC games
             return res.status(200).json({
                 success: true,
@@ -533,8 +536,8 @@ module.exports = {
             });
         }
     }
-    
-    
+
+
 
 
 

@@ -8,8 +8,8 @@ const tronWeb = new TronWeb({
     fullHost: 'https://nile.trongrid.io',
 });
 
-const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P";
-const ADMIN_PRIVATE_KEY = "FF15689965555B7AD3FF193FC81B38B9E236FBFE1AAE8552AD876FF0263905AD";
+const ADMIN_TRX_ADDRESS = process.env.ADMIN_TRX_ADDRESS;
+const ADMIN_PRIVATE_KEY = process.env.ADMIN_PRIVATE_KEY;
 
 /**
  * Get TRX balance of an address
@@ -165,59 +165,59 @@ function formatDate(timestamp) {
 
 // Function to add a delay
 // Function to add a random delay between 3 to 4 seconds
+// Helper: random delay between 3–4s
 function delay() {
-    const randomDelay = Math.floor(Math.random() * 1000) + 3000; // Random delay between 3000 ms (3 seconds) and 4000 ms (4 seconds)
-    return new Promise(resolve => setTimeout(resolve, randomDelay));
-  }
-  
-  cron.schedule('*/2 * * * *', async () => {
+  const randomDelay = Math.floor(Math.random() * 1000) + 3000;
+  return new Promise(resolve => setTimeout(resolve, randomDelay));
+}
+
+// Schedule: second, minute, hour, day of month, month, day of week
+cron.schedule(
+  '59 59 23 * * *',            // at 23:59:59 every day
+  async () => {
     try {
       const now = new Date();
-      console.log("🏁 Running daily reward cron...");
-  
+      console.log("🏁 Running daily reward cron at", now.toISOString());
+
+      // Only plans that are still active (expiresAt > now)
       const activeUserPlans = await UserPlan.findAll({
         where: {
           paymentStatus: 'completed',
           expiresAt: { [Op.gt]: now },
         },
-        include: [
-          { model: Plan },
-          { model: User }
-        ]
+        include: [ Plan, User ]
       });
-  
-      for (const userPlan of activeUserPlans) {
-        const { userId, Plan: plan, User: user } = userPlan;
+
+      for (const up of activeUserPlans) {
+        const { userId, Plan: plan, User: user } = up;
         const reward = parseFloat(plan.dailyReward);
-  
+
         if (!user.trx20DepositAddress) {
-          console.log(`⚠️ User ${userId} has no TRX address`);
+          console.warn(`⚠️ User ${userId} has no TRX address`);
           continue;
         }
-  
-        // Check if reward was already sent today
+
+        // Skip if already sent today
         const alreadySent = await RewardHistory.findOne({
           where: {
             userId,
             planId: plan.id,
             createdAt: {
-              [Op.gte]: new Date(new Date().setHours(0, 0, 0, 0)), // today
+              [Op.gte]: new Date(new Date().setHours(0, 0, 0, 0)),
             }
           }
         });
-  
         if (alreadySent) {
-          console.log(`⏩ Reward already sent today to user ${userId} for plan ${plan.id}`);
+          console.log(`⏩ Reward already sent today to user ${userId}`);
           continue;
         }
-  
-        // Delay each transaction by a random time (between 3 to 4 seconds)
+
+        // Throttle transactions so you don’t blast your node
         await delay();
-  
-        // Try to send TRX
+
+        // Attempt to send
         try {
           const txHash = await sendWithDrawAmount(user.trx20DepositAddress, reward);
-  
           if (txHash) {
             await RewardHistory.create({
               userId,
@@ -226,22 +226,25 @@ function delay() {
               status: 'sent',
               trxHash: txHash
             });
-  
             console.log(`✅ Sent ${reward} TRX to user ${userId} | TX: ${txHash}`);
           } else {
-            console.error(`❌ Failed to send TRX to user ${userId}: Transaction failed, no txHash`);
+            console.error(`❌ No txHash returned for user ${userId}`);
           }
         } catch (err) {
           console.error(`❌ Failed to send TRX to user ${userId}:`, err.message);
-          // Skip creating RewardHistory record for failed transaction
         }
       }
-  
+
       console.log("✅ Daily reward cron finished.");
     } catch (error) {
       console.error("🔥 Error in daily reward cron:", error);
     }
-  });
+  },
+  {
+    timezone: 'Asia/Karachi'
+  }
+);
+
   
   
   
@@ -333,7 +336,7 @@ const checkTimers = async () => {
 };
 
 // Run this job every 1 minute
-cron.schedule("*/1 * * * *", checkTimers);
+// cron.schedule("*/1 * * * *", checkTimers);
 
 
 

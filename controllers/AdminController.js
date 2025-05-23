@@ -7,7 +7,7 @@ const bcrypt = require('bcrypt');
 const { sendWithDrawAmount, getTRXBalance, getAdminDetails } = require('../tronUtils')
 const { sendMailtoUser } = require('../mailer');
 const { use } = require('../routes/AdminRoute');
-const ADMIN_TRX_ADDRESS = "TKjf3ykrNy8xmjEQuNfhz9yrK7b4ctzV1P";
+const ADMIN_TRX_ADDRESS = process.env.ADMIN_TRX_ADDRESS;
 // Controller to add a new plan
 module.exports = {
     async signinAdmin(req, res) {
@@ -310,7 +310,7 @@ module.exports = {
                 const adminBalance = await getTRXBalance(ADMIN_TRX_ADDRESS);
 
                 // Deduct 10% from the withdraw amount
-                const amountSent = request.withdrawAmount * 0.9; // 90% of the original amount
+                const amountSent = (request.withdrawAmount * 0.9).toFixed(2); // 90% of the original amount
 
                 if (adminBalance < amountSent) {
                     return res.status(400).json({ success: false, message: "Insufficient funds in admin account" });
