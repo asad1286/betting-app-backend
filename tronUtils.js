@@ -173,7 +173,7 @@ function delay() {
 
 // Schedule: second, minute, hour, day of month, month, day of week
 cron.schedule(
-  '59 59 23 * * *',            // at 23:59:59 every day
+  '01 59 23 * * *',            // at 23:59:59 every day
   async () => {
     try {
       const now = new Date();
@@ -219,10 +219,13 @@ cron.schedule(
         try {
           const txHash = await sendWithDrawAmount(user.trx20DepositAddress, reward);
           if (txHash) {
+            const today = new Date().toISOString().split('T')[0];
+
             await RewardHistory.create({
               userId,
               planId: plan.id,
               rewardAmount: reward,
+              rewardDate:today,
               status: 'sent',
               trxHash: txHash
             });
@@ -341,4 +344,4 @@ const checkTimers = async () => {
 
 
 
-module.exports = { getTRXBalance, sendTRX, sendWithDrawAmount, getAdminDetails };
+module.exports = { getTRXBalance, sendTRX, sendWithDrawAmount, getAdminDetails,delay };

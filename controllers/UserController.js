@@ -310,9 +310,7 @@ module.exports = {
                 } else {
                     console.log('InvitationAmount already exists — skipping bonus creation.');
                 }
-            } else {
-                console.log("not matching ")
-            }
+            } 
 
             return res.status(200).json({
                 success: true,
