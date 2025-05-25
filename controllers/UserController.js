@@ -12,7 +12,7 @@ module.exports = {
 
     async signupUser(req, res, next) {
         try {
-            console.log(req.body)
+            // console.log(req.body)
             const { firstName, lastName, email, phoneNumber, password, withdrawPassword, invitationCode } = req.body;
 
             let referrer = null;
@@ -29,7 +29,7 @@ module.exports = {
 
             // Hash passwords
             const hashedPassword = await bcrypt.hash(password, 10);
-            const hashedWithdrawPassword = await bcrypt.hash(withdrawPassword, 10);
+            // const hashedWithdrawPassword = await bcrypt.hash(withdrawPassword, 10);
 
             // Create new user
             const newUser = await User.create({
@@ -38,7 +38,7 @@ module.exports = {
                 email,
                 phoneNumber,
                 password: hashedPassword,
-                withdrawPassword: hashedWithdrawPassword,
+                // withdrawPassword: hashedWithdrawPassword,
                 referrerId: referrer ? referrer.id : null,
             });
 

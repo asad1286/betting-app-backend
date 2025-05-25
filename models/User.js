@@ -88,10 +88,10 @@ module.exports = (sequelize) => {
             },
             withdrawPassword: {
                 type: DataTypes.STRING,
-                allowNull: false,
-                validate: {
-                    notEmpty: { msg: 'Withdraw password cannot be empty' },
-                },
+                allowNull: true,
+                // validate: {
+                //     notEmpty: { msg: 'Withdraw password cannot be empty' },
+                // },
             },
             invitationCode: {
                 type: DataTypes.STRING,

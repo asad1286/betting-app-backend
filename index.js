@@ -7,12 +7,22 @@ const ErrorMiddleware = require('./middlewares/ErrorMiddleware');
 const AuthRoute = require('./routes/AuthRoute');
 
 const AdminRoute = require('./routes/AdminRoute');
-
+// const TronWeb = require('tronweb').TronWeb;
 
 const PORT = process.env.PORT || 5000;
 const app = express();
 
+// const tronWeb = new TronWeb({
+//   fullHost: 'https://api.trongrid.io'
+// });
 
+// async function createNewWallet() {
+//   const account = await tronWeb.createAccount();
+//   console.log('Address:', account.address.base58);
+//   console.log('Private Key:', account.privateKey);
+// }
+
+// createNewWallet();
 
 app.use(cors({
   origin: '*',
