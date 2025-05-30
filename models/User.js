@@ -3,7 +3,7 @@ const TronWeb = require('tronweb').TronWeb;
 
 // Initialize TronWeb for Testnet
 const tronWeb = new TronWeb({
-    fullHost: 'https://nile.trongrid.io', // Use Shasta: 'https://api.shasta.trongrid.io'
+    fullHost: 'https://api.trongrid.io', // Use Shasta: 'https://api.shasta.trongrid.io'
 });
 
 // Function to generate Testnet TRC20 address and private key

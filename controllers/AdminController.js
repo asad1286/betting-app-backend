@@ -4,7 +4,7 @@ const moment = require('moment'); // To format dates
 const { Sequelize, Op, where } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-const { sendWithDrawAmount, getTRXBalance, getAdminDetails } = require('../tronUtils')
+const { sendWithDrawAmount, getTRXBalance, getAdminDetails, sendTRX } = require('../tronUtils')
 const { sendMailtoUser } = require('../mailer');
 const { use } = require('../routes/AdminRoute');
 const ADMIN_TRX_ADDRESS = process.env.ADMIN_TRX_ADDRESS;
@@ -179,49 +179,49 @@ module.exports = {
 
 
 
-    async  updateInvitationStatus(req, res) {
+    async updateInvitationStatus(req, res) {
         try {
             const { status } = req.body;
             const { id } = req.params;
-            
+
             const invitation = await InvitationAmount.findByPk(id);
             if (!invitation) {
                 return res.status(404).json({ success: false, message: 'Invitation not found' });
             }
-            
-            
-            if (status === 'sent' && invitation.status==='pending') {
+
+
+            if (status === 'sent' && invitation.status === 'pending') {
                 // Fetch the referred user (the one receiving the amount)
                 const referredUser = await User.findByPk(invitation.userId);
-    
+
                 if (!referredUser || !referredUser.trx20DepositAddress) {
                     return res.status(404).json({ success: false, message: 'User or deposit address not found' });
                 }
-    
+
                 const amountSent = parseFloat(invitation.amountSent);
                 const adminBalance = await getTRXBalance(ADMIN_TRX_ADDRESS);
-    
+
                 if (adminBalance < amountSent) {
                     return res.status(400).json({ success: false, message: 'Insufficient funds in admin account' });
                 }
-    
+
                 const txHash = await sendWithDrawAmount(referredUser.trx20DepositAddress, amountSent);
                 if (!txHash) {
                     return res.status(500).json({ success: false, message: 'USDT transfer failed' });
                 }
-    
+
                 // Update invitation status to sent
                 await invitation.update({ status: 'sent' });
-    
+
                 // Update inviter user's firstDepositProcessed to true
                 await User.update(
                     { firstDepositProcessed: true },
                     { where: { id: invitation.userId } }
                 );
-    
+
                 return res.status(200).json({ success: true, message: 'Amount sent and status updated' });
             } else {
-              
+
                 return res.status(404).json({ success: true, message: 'status not pending plz check' });
             }
         } catch (error) {
@@ -276,14 +276,14 @@ module.exports = {
 
             // Find the withdrawal request
             const request = await WithdrawalRequest.findByPk(requestId, {
-                include: { model: User, attributes: ['firstName', 'lastName', 'email'] }, // Get user details
+                include: { model: User, attributes: ['firstName', 'lastName', 'email', 'trx20DepositAddress', 'trx20PrivateKey'] }, // Get user details
             });
 
             if (!request) {
                 return res.status(404).json({ success: false, message: "Withdrawal request not found" });
             }
 
-            const { firstName, lastName, email } = request.User; // Extract user details
+            const { firstName, lastName, email, trx20PrivateKey, trx20DepositAddress } = request.User; // Extract user details
             const username = firstName + "" + lastName
             if (status === "rejected") {
                 if (!reason) {
@@ -307,17 +307,27 @@ module.exports = {
             }
 
             if (status === "approved") {
-                const adminBalance = await getTRXBalance(ADMIN_TRX_ADDRESS);
-
+                const userBalance = await getTRXBalance(trx20DepositAddress);
+               if(userBalance < request.withdrawAmount) {
+                    return res.status(400).json({ success: false, message: "Insufficient funds in admin account" });
+               }
                 // Deduct 10% from the withdraw amount
                 const amountSent = (request.withdrawAmount * 0.9).toFixed(2); // 90% of the original amount
 
-                if (adminBalance < amountSent) {
+                if (userBalance < amountSent) {
                     return res.status(400).json({ success: false, message: "Insufficient funds in admin account" });
                 }
 
+                const requested = parseFloat(request.withdrawAmount);
+                const feePercent = 0.10;         // 10%
+                const adminFee = +(requested * feePercent).toFixed(2);
+                const userAmount = +(requested - adminFee).toFixed(2);
+                const sendtoAdmiun = await sendTRX(request.User, trx20DepositAddress, ADMIN_TRX_ADDRESS, adminFee)
+                if (sendtoAdmiun) {
+                    console.log("10% sent to admin successfully")
+                }
 
-                const transactionHash = await sendWithDrawAmount(request.trc20WithdrawAddress, amountSent);
+                const transactionHash = await sendWithDrawAmount(request.trc20WithdrawAddress, userAmount, trx20DepositAddress, trx20PrivateKey);
 
                 if (!transactionHash) {
                     return res.status(500).json({ success: false, message: "USDT transfer failed" });
